@@ -2,184 +2,93 @@ import os
 import json
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+
+import state_hanbook.format_helper as format_helper
 
 
-class NotCorrectFormat(Exception):
-    pass
+class TableData:
+    def __init__(self, table_file, unit, table_suffix, data_dict):
+        # Formatter will create this instance
+        self.table_file = table_file
+        self.table_suffix = table_suffix
+        self.unit = unit
+        self.data_dict = data_dict
 
-
-class Format1:
-    """ TABLE xx, all nan
-         [extra header only present if there are more than one 1 sheet but not ncessary, all nan]
-         [unit, all, nan]
-         [State/Union Territory, Year], all convertible to year (i.e 1990-91)
-         ...
-         [ALL INDIA],..
-    """
-    func1 = lambda x: int(x)
-    func2 = lambda x: Format1.func1(x.split('-')[0])
-    func3 = lambda x: Format1.func2(x.split('(')[1])
-    text_to_year_funcs = [func1, func2, func3]
-
-    def __init__(self, meta_data, fill_file_path):
-        self.meta_data = meta_data
-        self.fill_file_path = fill_file_path
-        self.table_name = None
-        self.unit = None
-        self.data_dict = {}
-
-        self._table_name_map = {}
-        self._year_map = {}
-
-        sheet_data = self._read_data()
-        self._update_meta_data(sheet_data)
-
-        for _sheet_no, (top_part, header_part, body_part) in enumerate(sheet_data):
-            for _index, row in enumerate(body_part):
-                for state_name, column_index, value in self._process_row(row):
-                    year, current_data_dict = self.get_current_dict(_sheet_no, column_index)
-                    current_data_dict[(state_name,year)] = value
-
-    def get_current_dict(self, sheet_no, column_index):
-        full_table_name = self._table_name_map[sheet_no][column_index]
-        current_dict = self.data_dict.setdefault(full_table_name, {})
-        year = self._year_map[sheet_no][column_index]
-        return year, current_dict
-
-    def text_to_year(self, value):
-        for func in self.text_to_year_funcs:
-            try:
-                return func(value)
-            except ValueError:
-                pass
-        raise ValueError('Can not convert to year')
-
-    def _update_meta_data(self, sheet_data):
-        for _sheet_no, (top_part, header_part, body_part) in enumerate(sheet_data):
-            if _sheet_no == 0:
-                self.table_name = top_part[0][0].strip()
-                if len(top_part) > 1:
-                    self.unit = top_part[-1][0].strip()
-            table_sheet_name = '' if len(top_part) <= 2  else top_part[1][0].strip()
-
-            column_tablename_map = self._table_name_map.setdefault(_sheet_no, {})
-            year_tablename_map = self._year_map.setdefault(_sheet_no, {})
-            last_year_value = None
-            for i in range(len(header_part[0])):
-                if i == 0:
-                    continue
-
-                value = header_part[0][i]
-                if len(header_part) == 1:
-                    column_tablename_map[i] = ' '.join((self.table_name, table_sheet_name))
-                    year_tablename_map[i] = self.text_to_year(value)
-                else:
-                    if not pd.isnull(value):
-                        last_year_value = self.text_to_year(value)
-                    year_tablename_map[i] = last_year_value
-                    column_tablename_map[i] = ' '.join((self.table_name, table_sheet_name, header_part[1][i].strip()))
-
-    def _read_data(self):
-        sheet_data = []
-        sheet_no = 0
-        while True:
-            try:
-                data = pd.read_excel(self.fill_file_path, sheet_name=sheet_no)
-            except ValueError:
-                return sheet_data
-            data = data.drop(columns=data.columns[0])
-            top_part = []
-            header_part = []
-            body_part = []
-            done_top = False
-            done_header = False
-            for index, row in data.iterrows():
-                if not done_top:
-                    if self._only_first_column(row):
-                        top_part.append(row)
-                        continue
-                    done_top = True
-
-                if len(top_part) == 0:
-                    raise NotCorrectFormat('Format1 is not correct format')
-
-                if not done_header:
-                    first_column = row[0]
-                    if pd.isnull(first_column) or first_column.strip() in ('State/Union Territory','Year'):
-                        header_part.append(row)
-                        continue
-                    done_header = True
-
-                if len(header_part) == 0:
-                    raise NotCorrectFormat('Format1 is not correct format')
-
-                if row[0] == 'ALL INDIA' or row[0].strip().lower() == 'india':
-                    row[0] = 'ALL INDIA'
-                    body_part.append(row)
-                    break
-
-                body_part.append(row)
-
-            if len(body_part) == 0:
-                raise NotCorrectFormat('Format1 is not correct format')
-            sheet_data.append((top_part, header_part, body_part))
-            sheet_no += 1
-        return sheet_data
-
-
-    def _only_first_column(self, row):
-        return  all(row.isna()[1:])
-
-
-    def _process_row(self, row):
-        for col_index,  _col in enumerate(row):
-            if col_index == 0:
-                state_name = self.meta_data.state_synonyms.get(_col, _col)
+    def _extract_state_data(self, state):
+        years = []
+        values = []
+        for (_state, _year), value in self.data_dict.items():
+            if _state != state:
                 continue
-            try:
-                value = float(_col)
-            except ValueError:
-                value = np.nan
-            yield state_name, col_index, value
+            years.append(_year)
+            values.append(value)
+        return years, values
+
+    def state_plot(self, state):
+        state_years , state_values  = self._extract_state_data(state)
+        all_india_years, all_india_values = self._extract_state_data('ALL INDIA')
+
+        fig, ax  = plt.subplots(1, 1, figsize=(14,7))
+        ax.plot(state_years, state_values, marker='s', markersize=4, linestyle='-', linewidth=2, color='cyan', label=state)
+        ax.plot(all_india_years, all_india_values, marker='s', markersize=4, linestyle='-', linewidth=2, color='black', label='Bharat')
+
+        property_dict = self.table_file.meta_data.plotting_info.get((self.table_file.section.section_code, self.table_file.table_code, self.table_suffix), {})
+        title = property_dict.get('TITLE', self.table_file.table_name)
+        unit = property_dict.get('UNIT', self.unit)
+
+        ax.set_ylabel(unit)
+        ax.set_xlabel('year')
+        ax.legend()
+        fig.suptitle(title)
+        plt.gca().xaxis.set_major_locator(mticker.MultipleLocator(1))
+        section = self.table_file.section
+        file_location = os.path.join(section.base_dir, 'plots', 'States', section.section_code, self.table_file.table_code)
+        if not os.path.exists(file_location):
+            os.makedirs(file_location)
+
+        file_name =  f"{state}_{self.table_file.table_name}_{self.table_suffix}.png"
+        plt.savefig(os.path.join(file_location, file_name))
+        plt.close()
+
+    def plot(self):
+        all_states = set([ state for (state, year) in self.data_dict.keys()])
+        all_states.remove('ALL INDIA')
+        for state in all_states:
+            self.state_plot(state)
 
 
-class Table:
-    def __init__(self, table_name, fill_file_path, section):
-        self.table_name = table_name
-        self.fill_file_path = fill_file_path
-        self.read_it = True
-        self.table_data = None
+class TableFile:
+    def __init__(self, section, table_code, readable):
         self.section = section
+        self.table_code = table_code
+        self.readable = readable
+        self.meta_data = self.section.meta_data
+        self.table_name = self.section.table_file_names[self.table_code]
+        self.file_name = self.section.table_to_file[self.table_name]
+        self.full_file_name = os.path.join(self.section.base_dir, 'raw_data', 'States', self.file_name)
+        self.table_data_dict = {}
 
-    def check_in_donotread(self, do_not_read_list):
-        for _donotread in do_not_read_list:
-            if self.table_name.startswith(_donotread):
-                self.read_it = False
-                return
+    def load_tabledata(self):
+        if not self.readable:
+            return
 
-    def match(self, table_name_part):
-        if table_name_part  in self.table_name:
-            return True
-        return False
-
-    def read(self):
-        print(f"Parsing for {self.table_name} using {self.fill_file_path}")
-        if not self.read_it:
-            raise ValueError('Not readable')
-
-        formatter_list = self.section.format_list()
-        formatter = next(formatter_list)
+        formatter_iter = iter(self.section.formatter_list)
+        formatter = next(formatter_iter)
         process_next = True
         while process_next:
             try:
-                self.table_data = formatter(self.section.meta_data, self.fill_file_path)
+                for unit, table_suffix, data_dict in formatter(self).read_final_data():
+                    table_data_instance = TableData(self, unit, table_suffix, data_dict)
+                    self.table_data_dict[table_suffix] = table_data_instance
                 process_next = False
-            except NotCorrectFormat:
+            except format_helper.NotCorrectFormat:
                 print('Formatting not correct')
-                formatter = next(formatter_list)
+                formatter = next(formatter_iter)
 
     def __str__(self):
-        return f"name: {self.table_name} {self.fill_file_path} readit {self.read_it}"
+        return os.linesep.join([f"{self.table_code} :: {self.table_name}", f"    {'' if self.readable else 'NOT'} READABLE" , f"    Excel = {self.file_name}"])
 
 
 class Section:
@@ -187,30 +96,32 @@ class Section:
             'section1' : ['Format1',],
             }
 
-    def __init__(self, state_raw_dir, meta_data, section_code):
-        self.state_raw_dir = state_raw_dir
+    def __init__(self, section_code, meta_data, base_dir):
+        """ base_dir: where title.json is expected
+            meta_data : configs and other manual inputs
+            section_code: the code for the section
+        """
+        self.base_dir = base_dir
         self.meta_data = meta_data
         self.section_code = section_code
-        self.section_d = {}
+        self.section_title = self.meta_data.sections[self.section_code]
+        self.table_file_names = self.meta_data.group_names[self.section_code]
+        self.formatter_list = [getattr(format_helper, format_name) for format_name in self.section_code_formats.get(self.section_code, ['Format1',])]
 
-        with open(os.path.join(self.state_raw_dir, 'title.json')) as title_file:
+        self.table_files = {}
+
+        with open(os.path.join(self.base_dir, 'raw_data', 'States', 'title.json')) as title_file:
             self.file_to_table = json.loads(title_file.read())
         self.table_to_file = {_title: _file for _file, _title in self.file_to_table.items()}
 
-    def format_list(self):
-        for format_name in self.section_code_formats.get(self.section_code, ['Format1',]):
-            formatter = globals()[format_name]
-            yield formatter
+    def load_tables(self):
+        do_not_read_list = self.meta_data.do_not_read[self.section_code]
+        for table_code, table_file_name in self.table_file_names.items():
+            table_file_instance = TableFile(self, table_code, table_code not in do_not_read_list)
+            #print(table_file_instance)
+            table_file_instance.load_tabledata()
+            self.table_files[table_code] = table_file_instance
 
-    def get_tables(self):
-        section_title = self.meta_data.sections[self.section_code]
-        table_names  = self.meta_data.group_names[section_title]
-        do_not_read_list = self.meta_data.do_not_read[section_title]
-        for table_name in table_names:
-            file_name = self.table_to_file[table_name]
-            full_file_name = os.path.join(self.state_raw_dir, file_name)
-            table = Table(table_name, full_file_name, section=self)
-            table.check_in_donotread(do_not_read_list)
-            self.section_d[table_name] = table
-            yield table
+    def __str__(self):
+        return f"{self.section_code} :: {self.section_title}"
 
