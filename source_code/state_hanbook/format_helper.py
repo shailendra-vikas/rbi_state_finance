@@ -6,15 +6,7 @@ import pandas as pd
 class NotCorrectFormat(Exception):
     pass
 
-
-class Format1:
-    """ TABLE xx, all nan
-         [extra header only present if there are more than one 1 sheet but not ncessary, all nan]
-         [unit, all, nan]
-         [State/Union Territory, Year], all convertible to year (i.e 1990-91)
-         ...
-         [ALL INDIA],..
-    """
+class FormatBase:
     func1 = lambda x: int(x)
     func2 = lambda x: Format1.func1(x.split('-')[0])
     func3 = lambda x: Format1.func2(x.split('(')[1])
@@ -36,7 +28,7 @@ class Format1:
             for _index, row in enumerate(body_part):
                 for state_name, column_index, value in self._process_row(row):
                     year, current_data_dict = self.get_current_dict(_sheet_no, column_index)
-                    current_data_dict[(state_name,year)] = value
+                    current_data_dict[(state_name, year)] = value
 
     def get_current_dict(self, sheet_no, column_index):
         full_table_name = self._table_name_map[sheet_no][column_index]
@@ -58,31 +50,6 @@ class Format1:
             table_sheet_name = table_sheet_name[1:-1]
         table_sheet_name = table_sheet_name.split('(Per cent)')[0]
         return table_sheet_name.strip()
-
-    def _update_meta_data(self, sheet_data):
-        for _sheet_no, (top_part, header_part, body_part) in enumerate(sheet_data):
-            if _sheet_no == 0:
-                self.tablename_in_file = top_part[0][0].strip()
-                if len(top_part) > 1:
-                    self.unit = top_part[-1][0].strip()
-            table_sheet_name = '' if len(top_part) <= 2  else self._trim_table_sheet_name(top_part[1][0].strip())
-
-            column_tablename_map = self._table_name_map.setdefault(_sheet_no, {})
-            year_tablename_map = self._year_map.setdefault(_sheet_no, {})
-            last_year_value = None
-            for i in range(len(header_part[0])):
-                if i == 0:
-                    continue
-
-                value = header_part[0][i]
-                if len(header_part) == 1:
-                    column_tablename_map[i] = table_sheet_name
-                    year_tablename_map[i] = self.text_to_year(value)
-                else:
-                    if not pd.isnull(value):
-                        last_year_value = self.text_to_year(value)
-                    year_tablename_map[i] = last_year_value
-                    column_tablename_map[i] = table_sheet_name + self._trim_table_sheet_name(header_part[1][i].strip())
 
     def _read_data(self):
         sheet_data = []
@@ -123,6 +90,8 @@ class Format1:
                     body_part.append(row)
                     break
 
+                if 'Not Available' in row[0] or 'Notes' in row[0]:
+                    break
                 body_part.append(row)
 
             if len(body_part) == 0:
@@ -131,10 +100,8 @@ class Format1:
             sheet_no += 1
         return sheet_data
 
-
     def _only_first_column(self, row):
         return  all(row.isna()[1:])
-
 
     def _process_row(self, row):
         for col_index,  _col in enumerate(row):
@@ -151,4 +118,75 @@ class Format1:
         for table_suffix, data in self.data_dict.items():
             yield self.unit, table_suffix, data
 
+
+class Format1(FormatBase):
+    """ TABLE xx, all nan
+         [extra header only present if there are more than one 1 sheet but not ncessary, all nan]
+         [unit, all, nan]
+         [State/Union Territory, Year], all convertible to year (i.e 1990-91)
+         [State/Union Territory, extra header]
+         ...
+         [ALL INDIA],..
+    """
+    def _update_meta_data(self, sheet_data):
+        for _sheet_no, (top_part, header_part, body_part) in enumerate(sheet_data):
+            if _sheet_no == 0:
+                self.tablename_in_file = top_part[0][0].strip()
+                if len(top_part) > 1:
+                    self.unit = top_part[-1][0].strip()
+            table_sheet_name = '' if len(top_part) <= 2  else self._trim_table_sheet_name(top_part[1][0].strip())
+
+            column_tablename_map = self._table_name_map.setdefault(_sheet_no, {})
+            year_tablename_map = self._year_map.setdefault(_sheet_no, {})
+            last_year_value = None
+            for i in range(len(header_part[0])):
+                if i == 0:
+                    continue
+
+                value = header_part[0][i]
+                if len(header_part) == 1:
+                    column_tablename_map[i] = table_sheet_name
+                    year_tablename_map[i] = self.text_to_year(value)
+                else:
+                    if not pd.isnull(value):
+                        last_year_value = self.text_to_year(value)
+                    year_tablename_map[i] = last_year_value
+                    column_tablename_map[i] = table_sheet_name + self._trim_table_sheet_name(header_part[1][i].strip())
+
+
+class Format2(FormatBase):
+    """ TABLE xx, all nan
+         [extra header only present if there are more than one 1 sheet but not ncessary, all nan]
+         [unit, all, nan]
+         [State/Union Territory, extra header]
+         [State/Union Territory, Year], all convertible to year (i.e 1990-91)
+         ...
+         [ALL INDIA],..
+    """
+    def _update_meta_data(self, sheet_data):
+        for _sheet_no, (top_part, header_part, body_part) in enumerate(sheet_data):
+            if _sheet_no == 0:
+                self.tablename_in_file = top_part[0][0].strip()
+                if len(top_part) > 1:
+                    self.unit = top_part[-1][0].strip()
+            # table_sheet_name = '' if len(top_part) <= 2 else self._trim_table_sheet_name(top_part[1][0].strip())
+            table_sheet_name = ''
+
+            column_tablename_map = self._table_name_map.setdefault(_sheet_no, {})
+            year_tablename_map = self._year_map.setdefault(_sheet_no, {})
+            last_year_value = None
+            for i in range(len(header_part[0])):
+                if i == 0:
+                    continue
+
+                if len(header_part) == 1:
+                    value = header_part[0][i]
+                    column_tablename_map[i] = table_sheet_name
+                    year_tablename_map[i] = self.text_to_year(value)
+                else:
+                    value = header_part[1][i]
+                    year_tablename_map[i] = self.text_to_year(value)
+                    if not pd.isnull(header_part[0][i]):
+                        last_extra_header = self._trim_table_sheet_name(header_part[0][i].strip()).replace(':', '_').replace(' ', '')
+                    column_tablename_map[i] = table_sheet_name + last_extra_header
 

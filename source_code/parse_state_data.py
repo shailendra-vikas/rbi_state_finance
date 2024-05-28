@@ -7,9 +7,11 @@ parser.add_option( "--outfile", dest="output_filename", help="The name of the ou
 parser.add_option( "--year", dest="handbook_year", help="The year of the handbook", default=None)
 (options, args) = parser.parse_args()
 
+
 def get_meta_data(year: str):
     meta_data = __import__(f'setup_state_{year}')
     return meta_data
+
 
 def interact(section_d):
     all_table = {}
@@ -40,7 +42,7 @@ def interact(section_d):
             print(f'    {key}')
 
         plot_or_not = input('Should we plot[y/n]:')
-        if plot_or_not in ('Y', 'y','yes','Yes'):
+        if plot_or_not in ('Y', 'y', 'yes', 'Yes'):
             for table_name, table_suffix in sorted_key:
                 print(f'plot for {table_name} {table_suffix}')
                 table_data_instance = all_table[(table_name, table_suffix)]
@@ -49,27 +51,44 @@ def interact(section_d):
             break
 
 
+def plot_all(section_d):
+    for section_name, section in section_d.items():
+        print(f'======= {section} =========')
+        for table_name, table_instance in section.table_files.items():
+            print(f'    ===== {table_name}  ===')
+            if not table_instance.readable:
+                continue
+
+            for table_suffix, table_data in table_instance.table_data_dict.items():
+                print(f'        {table_instance.table_name} {"::" if table_suffix else ""} {table_suffix} ')
+                table_data.plot()
+
+
+def get_sections(meta_data):
+    return meta_data.sections.keys() if len(args) == 1 and args[0] == 'all' else args
+
+
 def main():
     year = options.handbook_year if options.handbook_year else '2023'
     meta_data = get_meta_data(year)
-    if len(args)==1 and args[0]=='all':
-        sections = meta_data.sections.keys()
-    else:
-        sections =  args
+    # sections = get_sections()
+    sections = ['section1', 'section2']
 
-    base_path = os.path.join('/home/vikas/personal_repository/rbi_state_finance')
+    # base_path = os.path.join('/home/vikas/personal_repository/rbi_state_finance')
+    base_path = os.path.join(r'C:\Users\Shailendra\personal_projects\rbi_state_finance\rbi_state_finance')
 
     section_d = {}
     for section_code in sections:
         section_instance = state_data.Section(section_code, meta_data, base_path)
         section_instance.load_tables()
         section_d[section_code] = section_instance
-        #print(section_instance)
-        #for table_code, table_file in section_instance.table_files.items():
+        # print(section_instance)
+        # for table_code, table_file in section_instance.table_files.items():
         #    print(f'    KEY: {table_code}')
         #    print(f'    VALUE: {table_file}')
-    #print('All states: ', set(all_states))
-    interact(section_d)
+    # print('All states: ', set(all_states))
+    plot_all(section_d)
+    # interact(section_d)
 
 
 if __name__=='__main__':
